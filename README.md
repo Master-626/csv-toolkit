@@ -32,7 +32,21 @@ csv-toolkit merge -i data1.csv data2.csv -o merged.csv --deduplicate
 ### Filter Rows
 ```bash
 csv-toolkit filter -i users.csv -o adults.csv --condition "age >= 18"
+
+# Exclude a city
+csv-toolkit filter -i users.csv -o other_cities.csv --condition "city != Beijing"
 ```
+
+Conditions use three whitespace-separated parts: `column operator value`.
+Supported operators are `==`, `!=`, `<`, `<=`, `>`, and `>=`. Column names and
+values containing whitespace are not supported. Numeric values use exact
+decimal comparisons, including large integers and scientific notation; other
+values use case-sensitive lexicographic text comparisons. Numeric filters skip
+blank, missing, nonnumeric, and nonfinite cells. Text filters skip missing cells
+but compare explicit empty cells as empty strings. Nonfinite numeric condition
+values (such as `NaN` or `Infinity`), numeric exponents outside the supported
+decimal range, unknown columns, and unsupported operators raise an error before
+writing output.
 
 ### Sort
 ```bash

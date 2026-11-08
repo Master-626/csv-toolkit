@@ -7,9 +7,11 @@ from __future__ import annotations
 import csv
 import errno
 import json
+import operator
 import os
 import tempfile
 import unicodedata
+from decimal import Context, Decimal, InvalidOperation
 from pathlib import Path
 from typing import List
 
@@ -57,38 +59,73 @@ def merge_csv(input_paths: List[str], output_path: str, deduplicate: bool = Fals
 
 
 def filter_csv(input_path: str, output_path: str, condition: str):
-    """Filter CSV rows by condition. Simple condition: column operator value."""
+    """Filter with ==, !=, <, <=, >, or >= using numeric or text comparisons.
+
+    A numeric right-hand value selects exact, finite decimal comparisons;
+    otherwise comparisons are case-sensitive and lexicographic. Missing cells
+    never match. Numeric comparisons also skip nonnumeric or nonfinite cells.
+    """
     headers, rows = read_csv(Path(input_path))
 
-    # Parse simple condition: "age >= 18"
     parts = condition.split()
     if len(parts) != 3:
         raise ValueError("Condition format: 'column operator value' (e.g. 'age >= 18')")
 
     column, op, value = parts
+    comparisons = {
+        "==": operator.eq,
+        "!=": operator.ne,
+        "<": operator.lt,
+        "<=": operator.le,
+        ">": operator.gt,
+        ">=": operator.ge,
+    }
+    if op not in comparisons:
+        raise ValueError(
+            f"Unsupported filter operator: {op!r}; use ==, !=, <, <=, >, or >="
+        )
+    if column not in headers:
+        raise ValueError(f"Unknown filter column: {column!r}")
+    compare = comparisons[op]
 
-    # Try numeric comparison
+    # A private context keeps invalid-number handling independent of the
+    # caller's decimal traps. Decimal construction and comparison are exact,
+    # including integers larger than float's 53-bit precision.
+    number_context = Context(traps=[InvalidOperation])
     try:
-        value = float(value)
-        filtered = []
-        for row in rows:
+        numeric_value = Decimal(value, context=number_context)
+    except InvalidOperation:
+        # Numeric syntax with an exponent beyond Decimal's representation must
+        # not silently switch to text ordering. Float is only a syntax probe;
+        # its rounded result is never used for a comparison.
+        try:
+            float(value)
+        except ValueError:
+            numeric_value = None
+        else:
+            raise ValueError(
+                "Numeric filter value is outside the supported decimal range"
+            )
+    if numeric_value is not None and not numeric_value.is_finite():
+        raise ValueError("Numeric filter value must be finite")
+
+    filtered = []
+    for row in rows:
+        cell_value = row.get(column)
+        if cell_value is None:
+            continue
+        if numeric_value is None:
+            matches = compare(cell_value, value)
+        else:
             try:
-                cell_value = float(row.get(column, 0))
-                if op == ">=" and cell_value >= value:
-                    filtered.append(row)
-                elif op == "<=" and cell_value <= value:
-                    filtered.append(row)
-                elif op == ">" and cell_value > value:
-                    filtered.append(row)
-                elif op == "<" and cell_value < value:
-                    filtered.append(row)
-                elif op == "==" and cell_value == value:
-                    filtered.append(row)
-            except (ValueError, TypeError):
+                number = Decimal(cell_value, context=number_context)
+            except InvalidOperation:
                 continue
-    except ValueError:
-        # String comparison
-        filtered = [row for row in rows if row.get(column, "") == value]
+            if not number.is_finite():
+                continue
+            matches = compare(number, numeric_value)
+        if matches:
+            filtered.append(row)
 
     write_csv(Path(output_path), headers, filtered)
     return len(filtered)

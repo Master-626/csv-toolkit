@@ -30,7 +30,10 @@ def merge(inputs, output, deduplicate):
 @click.option("--condition", required=True, help="Filter condition (e.g. 'age >= 18')")
 def filter(input, output, condition):
     """Filter rows by condition."""
-    count = filter_csv(input, output, condition)
+    try:
+        count = filter_csv(input, output, condition)
+    except (OSError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
     click.echo(f"✅ Filtered: {count} rows match -> {output}")
 
 
