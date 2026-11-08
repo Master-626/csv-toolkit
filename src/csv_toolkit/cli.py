@@ -3,7 +3,6 @@ CLI interface for csv-toolkit.
 """
 
 import click
-from pathlib import Path
 
 from .core import merge_csv, filter_csv, sort_csv, split_csv, convert_csv
 
@@ -52,7 +51,10 @@ def sort(input, output, by, descending):
 @click.option("--by", required=True, help="Column to split by")
 def split(input, output_dir, by):
     """Split CSV into multiple files by column."""
-    count = split_csv(input, output_dir, by)
+    try:
+        count = split_csv(input, output_dir, by)
+    except (OSError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
     click.echo(f"✅ Split into {count} files -> {output_dir}")
 
 

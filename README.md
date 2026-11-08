@@ -45,6 +45,21 @@ csv-toolkit sort -i users.csv -o sorted_users.csv --by score --descending
 csv-toolkit split -i data.csv -o ./output --by city
 ```
 
+Split keeps every distinct column value in its own file. Names use letters,
+numbers, and underscores; empty values use `empty.csv`, and Windows device
+names such as `CON` gain a leading underscore. If names collide (including
+differences in case), numeric suffixes such as `_2` keep them distinct. Names
+are assigned in first-seen row order, reserving other groups' unsuffixed names.
+
+Existing output files, directories, and symlinks are never overwritten. A
+conflicting destination, including the input file itself, stops the split;
+choose an empty output directory or move the conflicting files first. The
+column must exist. All CSV data is staged before outputs are published, and
+files created by the split are removed if publication fails. The destination
+filesystem must support hard links for atomic, no-overwrite publication.
+This is not a multi-file transaction against process termination or concurrent
+directory changes; cleanup failures are reported explicitly.
+
 ### Convert Format
 ```bash
 # CSV to JSON
