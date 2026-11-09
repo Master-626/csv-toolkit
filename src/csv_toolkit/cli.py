@@ -2,6 +2,8 @@
 CLI interface for csv-toolkit.
 """
 
+import csv
+
 import click
 
 from .core import merge_csv, filter_csv, sort_csv, split_csv, convert_csv
@@ -20,7 +22,10 @@ def main():
 @click.option("--deduplicate", is_flag=True, help="Remove duplicate rows")
 def merge(inputs, output, deduplicate):
     """Merge multiple CSV files into one."""
-    count = merge_csv(list(inputs), output, deduplicate)
+    try:
+        count = merge_csv(list(inputs), output, deduplicate)
+    except (OSError, ValueError, csv.Error) as error:
+        raise click.ClickException(str(error)) from error
     click.echo(f"✅ Merged {len(inputs)} files, total {count} rows -> {output}")
 
 
@@ -32,7 +37,7 @@ def filter(input, output, condition):
     """Filter rows by condition."""
     try:
         count = filter_csv(input, output, condition)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, csv.Error) as error:
         raise click.ClickException(str(error)) from error
     click.echo(f"✅ Filtered: {count} rows match -> {output}")
 
@@ -44,7 +49,10 @@ def filter(input, output, condition):
 @click.option("--descending", is_flag=True, help="Sort descending")
 def sort(input, output, by, descending):
     """Sort CSV by column(s)."""
-    sort_csv(input, output, list(by), ascending=not descending)
+    try:
+        sort_csv(input, output, list(by), ascending=not descending)
+    except (OSError, ValueError, csv.Error) as error:
+        raise click.ClickException(str(error)) from error
     click.echo(f"✅ Sorted by {', '.join(by)} -> {output}")
 
 
@@ -56,7 +64,7 @@ def split(input, output_dir, by):
     """Split CSV into multiple files by column."""
     try:
         count = split_csv(input, output_dir, by)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, csv.Error) as error:
         raise click.ClickException(str(error)) from error
     click.echo(f"✅ Split into {count} files -> {output_dir}")
 
@@ -67,7 +75,10 @@ def split(input, output_dir, by):
 @click.option("-f", "--format", "output_format", required=True, type=click.Choice(["json"]), help="Output format")
 def convert(input, output, output_format):
     """Convert CSV to other formats."""
-    count = convert_csv(input, output, output_format)
+    try:
+        count = convert_csv(input, output, output_format)
+    except (OSError, ValueError, csv.Error) as error:
+        raise click.ClickException(str(error)) from error
     click.echo(f"✅ Converted {count} rows to {output_format} -> {output}")
 
 
