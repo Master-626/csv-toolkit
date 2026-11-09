@@ -186,7 +186,8 @@ def test_decimal_context_does_not_change_filter_results(source_csv, tmp_path):
         context.clear_flags()
         assert filter_csv(str(source_csv), str(output), "city != Beta") == 2
         assert [row["name"] for row in read_csv(output)[1]] == ["Alice", "Charlie"]
-        assert filter_csv(str(source_csv), str(output), "score > 18") == 3
+        numeric_output = tmp_path / "numeric.csv"
+        assert filter_csv(str(source_csv), str(numeric_output), "score > 18") == 3
         assert not context.flags[InvalidOperation]
 
 

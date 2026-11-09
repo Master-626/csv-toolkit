@@ -24,9 +24,28 @@ pip install .
 
 ## 🚀 Usage
 
+### Output safety
+
+Every operation creates **new** output files. Existing files, directories, and
+symlinks (including dangling links and aliases of an input file) are refused;
+there is no implicit overwrite or in-place mode. Choose a new destination when
+rerunning an operation. This also applies to the Python API's `write_csv`.
+
+CSV and JSON outputs are completely written to a temporary file beside the
+destination before atomic, no-overwrite publication. A serialization, write, or
+publication error does not leave a partial result or replace existing data.
+The destination filesystem must support hard links. This is not a durability
+guarantee against power loss or protection against concurrent directory changes.
+An output directory created for the operation may remain empty on failure.
+
+Input CSVs with duplicate headers, extra fields, or malformed quoting are
+rejected instead of silently dropping data. Missing trailing cells remain
+supported. Quoted cell line endings are preserved. CLI errors use a nonzero
+exit status and do not print a success message.
+
 ### Merge CSVs
 ```bash
-csv-toolkit merge -i data1.csv data2.csv -o merged.csv --deduplicate
+csv-toolkit merge -i data1.csv -i data2.csv -o merged.csv --deduplicate
 ```
 
 ### Filter Rows
@@ -53,6 +72,12 @@ writing output.
 # Sort by score descending
 csv-toolkit sort -i users.csv -o sorted_users.csv --by score --descending
 ```
+
+Sorting is stable, case-sensitive **text** ordering (`10` sorts before `2`).
+Repeat `--by` for multiple columns. All named columns must exist, even for a
+header-only file; the Python API also rejects an empty column list. Missing
+trailing cells sort like empty strings. Equal keys retain their input order,
+including when sorting descending.
 
 ### Split by Column
 ```bash

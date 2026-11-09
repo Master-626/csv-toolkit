@@ -11,6 +11,7 @@ import operator
 import os
 import tempfile
 import unicodedata
+from contextlib import contextmanager
 from decimal import Context, Decimal, InvalidOperation
 from pathlib import Path
 from typing import List
@@ -18,17 +19,46 @@ from typing import List
 
 def read_csv(file_path: Path) -> tuple[List[str], List[dict]]:
     """Read CSV file and return headers and rows."""
-    with open(file_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+    with open(file_path, "r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f, strict=True)
         headers = reader.fieldnames or []
-        rows = list(reader)
+        if len(set(headers)) != len(headers):
+            raise ValueError(f"Duplicate CSV column names in {file_path}")
+        rows = []
+        for row in reader:
+            if None in row:
+                raise ValueError(
+                    f"Too many CSV fields in {file_path} at line {reader.line_num}"
+                )
+            rows.append(row)
     return headers, rows
 
 
-def write_csv(file_path: Path, headers: List[str], rows: List[dict]):
-    """Write rows to CSV file."""
+@contextmanager
+def _new_output(file_path: Path):
+    """Stage a complete UTF-8 file and publish without replacing any entry."""
+    file_path = Path(file_path)
+    # lexists also rejects dangling symlinks, unlike Path.exists(). The final
+    # hard link enforces the same no-clobber rule against a concurrent writer.
+    if os.path.lexists(file_path):
+        raise FileExistsError(
+            errno.EEXIST,
+            "Refusing to overwrite an existing destination",
+            str(file_path),
+        )
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path, "w", encoding="utf-8", newline="") as f:
+    with tempfile.TemporaryDirectory(
+        prefix=".csv-toolkit-", dir=file_path.parent
+    ) as staging:
+        staged = Path(staging) / "output"
+        with staged.open("x", encoding="utf-8", newline="") as stream:
+            yield stream
+        os.link(staged, file_path)
+
+
+def write_csv(file_path: Path, headers: List[str], rows: List[dict]):
+    """Write a complete CSV file without overwriting an existing destination."""
+    with _new_output(file_path) as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
@@ -36,6 +66,8 @@ def write_csv(file_path: Path, headers: List[str], rows: List[dict]):
 
 def merge_csv(input_paths: List[str], output_path: str, deduplicate: bool = False):
     """Merge multiple CSV files into one."""
+    if not input_paths:
+        raise ValueError("At least one input CSV file is required")
     all_rows = []
     all_headers = set()
 
@@ -132,11 +164,16 @@ def filter_csv(input_path: str, output_path: str, condition: str):
 
 
 def sort_csv(input_path: str, output_path: str, by: List[str], ascending: bool = True):
-    """Sort CSV by specified columns."""
+    """Stably sort text columns; missing cells sort like empty strings."""
     headers, rows = read_csv(Path(input_path))
+    if not by:
+        raise ValueError("At least one sort column is required")
+    for column in by:
+        if column not in headers:
+            raise ValueError(f"Unknown sort column: {column!r}")
 
     def sort_key(row):
-        return [row.get(col, "") for col in by]
+        return [row.get(col) or "" for col in by]
 
     rows.sort(key=sort_key, reverse=not ascending)
     write_csv(Path(output_path), headers, rows)
@@ -259,16 +296,11 @@ def split_csv(input_path: str, output_dir: str, by_column: str):
 
 
 def convert_csv(input_path: str, output_path: str, output_format: str):
-    """Convert CSV to other formats (json, excel)."""
-    headers, rows = read_csv(Path(input_path))
-
-    output_p = Path(output_path)
-    output_p.parent.mkdir(parents=True, exist_ok=True)
-
-    if output_format == "json":
-        with open(output_p, "w", encoding="utf-8") as f:
-            json.dump(rows, f, indent=2, ensure_ascii=False)
-    else:
+    """Convert CSV to JSON without replacing an existing destination."""
+    if output_format != "json":
         raise ValueError(f"Unsupported format: {output_format}")
+    _, rows = read_csv(Path(input_path))
+    with _new_output(Path(output_path)) as f:
+        json.dump(rows, f, indent=2, ensure_ascii=False)
 
     return len(rows)
