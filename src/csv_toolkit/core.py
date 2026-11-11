@@ -14,12 +14,15 @@ import unicodedata
 from contextlib import contextmanager
 from decimal import Context, Decimal, InvalidOperation
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 
 def read_csv(file_path: Path) -> tuple[List[str], List[dict]]:
-    """Read CSV file and return headers and rows."""
-    with open(file_path, "r", encoding="utf-8", newline="") as f:
+    """Read CSV file and return headers and rows.
+
+    A leading UTF-8 BOM is ignored so the first column keeps its real name.
+    """
+    with open(file_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f, strict=True)
         headers = reader.fieldnames or []
         if len(set(headers)) != len(headers):
@@ -64,29 +67,54 @@ def write_csv(file_path: Path, headers: List[str], rows: List[dict]):
         writer.writerows(rows)
 
 
+def _merged_headers(header_lists: List[List[str]]) -> List[str]:
+    """Keep the first file's columns, then columns introduced later."""
+    headers: List[str] = []
+    seen = set()
+    for header_list in header_lists:
+        for header in header_list:
+            if header not in seen:
+                seen.add(header)
+                headers.append(header)
+    return headers
+
+
+def _output_cell(value: Optional[str]) -> str:
+    """Normalize a cell the way CSV writing does. Missing becomes empty."""
+    if value is None:
+        return ""
+    return value
+
+
 def merge_csv(input_paths: List[str], output_path: str, deduplicate: bool = False):
-    """Merge multiple CSV files into one."""
+    """Merge multiple CSV files into one.
+
+    Column order follows the first file, then columns introduced by later
+    files. Deduplicated rows compare the way they are written: a missing
+    cell and an empty cell are the same value.
+    """
     if not input_paths:
         raise ValueError("At least one input CSV file is required")
-    all_rows = []
-    all_headers = set()
 
+    header_lists = []
+    all_rows = []
     for path in input_paths:
         headers, rows = read_csv(Path(path))
-        all_headers.update(headers)
+        header_lists.append(headers)
         all_rows.extend(rows)
 
+    headers = _merged_headers(header_lists)
     if deduplicate:
         seen = set()
         unique_rows = []
         for row in all_rows:
-            key = tuple(sorted(row.items()))
+            key = tuple(_output_cell(row.get(header)) for header in headers)
             if key not in seen:
                 seen.add(key)
                 unique_rows.append(row)
         all_rows = unique_rows
 
-    write_csv(Path(output_path), sorted(all_headers), all_rows)
+    write_csv(Path(output_path), headers, all_rows)
     return len(all_rows)
 
 
@@ -123,7 +151,7 @@ def filter_csv(input_path: str, output_path: str, condition: str):
     # A private context keeps invalid-number handling independent of the
     # caller's decimal traps. Decimal construction and comparison are exact,
     # including integers larger than float's 53-bit precision.
-    number_context = Context(traps=[InvalidOperation])
+    number_context = _number_context()
     try:
         numeric_value = Decimal(value, context=number_context)
     except InvalidOperation:
@@ -149,11 +177,8 @@ def filter_csv(input_path: str, output_path: str, condition: str):
         if numeric_value is None:
             matches = compare(cell_value, value)
         else:
-            try:
-                number = Decimal(cell_value, context=number_context)
-            except InvalidOperation:
-                continue
-            if not number.is_finite():
+            number = _finite_decimal(cell_value, number_context)
+            if number is None:
                 continue
             matches = compare(number, numeric_value)
         if matches:
@@ -163,8 +188,36 @@ def filter_csv(input_path: str, output_path: str, condition: str):
     return len(filtered)
 
 
-def sort_csv(input_path: str, output_path: str, by: List[str], ascending: bool = True):
-    """Stably sort text columns; missing cells sort like empty strings."""
+def _number_context() -> Context:
+    """Parse decimals without using or changing the caller's context."""
+    return Context(traps=[InvalidOperation])
+
+
+def _finite_decimal(text: str, context: Context) -> Optional[Decimal]:
+    """Return a finite Decimal, or None when text is not a finite number."""
+    try:
+        number = Decimal(text, context=context)
+    except InvalidOperation:
+        return None
+    if not number.is_finite():
+        return None
+    return number
+
+
+def sort_csv(
+    input_path: str,
+    output_path: str,
+    by: List[str],
+    ascending: bool = True,
+    *,
+    numeric: bool = False,
+):
+    """Stably sort columns. The default is case-sensitive text order.
+
+    Missing cells sort like empty strings. With numeric=True, finite decimals
+    sort by exact value and every other cell sorts as text. Those nonnumeric
+    cells come first when ascending is true.
+    """
     headers, rows = read_csv(Path(input_path))
     if not by:
         raise ValueError("At least one sort column is required")
@@ -172,8 +225,23 @@ def sort_csv(input_path: str, output_path: str, by: List[str], ascending: bool =
         if column not in headers:
             raise ValueError(f"Unknown sort column: {column!r}")
 
-    def sort_key(row):
-        return [row.get(col) or "" for col in by]
+    if numeric:
+        number_context = _number_context()
+
+        def sort_key(row):
+            key = []
+            for col in by:
+                cell = row.get(col) or ""
+                number = _finite_decimal(cell, number_context)
+                if number is None:
+                    key.append((0, cell))
+                else:
+                    key.append((1, number))
+            return key
+    else:
+
+        def sort_key(row):
+            return [row.get(col) or "" for col in by]
 
     rows.sort(key=sort_key, reverse=not ascending)
     write_csv(Path(output_path), headers, rows)
@@ -245,7 +313,11 @@ def split_csv(input_path: str, output_dir: str, by_column: str):
 
     groups = {}
     for row in rows:
+        # DictReader uses None for a missing cell. Treating that as the text
+        # "None" steals None.csv from the literal value None.
         key = row.get(by_column, "unknown")
+        if key is None:
+            key = ""
         if key not in groups:
             groups[key] = []
         groups[key].append(row)

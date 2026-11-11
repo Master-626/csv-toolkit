@@ -6,7 +6,7 @@ import csv
 
 import click
 
-from .core import merge_csv, filter_csv, sort_csv, split_csv, convert_csv
+from .core import convert_csv, filter_csv, merge_csv, sort_csv, split_csv
 
 
 @click.group()
@@ -47,13 +47,25 @@ def filter(input, output, condition):
 @click.option("-o", "--output", required=True, help="Output CSV file")
 @click.option("--by", required=True, multiple=True, help="Column(s) to sort by")
 @click.option("--descending", is_flag=True, help="Sort descending")
-def sort(input, output, by, descending):
+@click.option(
+    "--numeric",
+    is_flag=True,
+    help="Sort finite numbers as exact decimals; other cells stay text",
+)
+def sort(input, output, by, descending, numeric):
     """Sort CSV by column(s)."""
     try:
-        sort_csv(input, output, list(by), ascending=not descending)
+        sort_csv(
+            input,
+            output,
+            list(by),
+            ascending=not descending,
+            numeric=numeric,
+        )
     except (OSError, ValueError, csv.Error) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(f"✅ Sorted by {', '.join(by)} -> {output}")
+    how = " (numeric)" if numeric else ""
+    click.echo(f"✅ Sorted by {', '.join(by)}{how} -> {output}")
 
 
 @main.command()
@@ -72,7 +84,14 @@ def split(input, output_dir, by):
 @main.command()
 @click.option("-i", "--input", required=True, help="Input CSV file")
 @click.option("-o", "--output", required=True, help="Output file")
-@click.option("-f", "--format", "output_format", required=True, type=click.Choice(["json"]), help="Output format")
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    required=True,
+    type=click.Choice(["json"]),
+    help="Output format",
+)
 def convert(input, output, output_format):
     """Convert CSV to other formats."""
     try:
