@@ -10,7 +10,6 @@ from click.testing import CliRunner
 from csv_toolkit import core
 from csv_toolkit.cli import main
 
-
 OPERATIONS = ["filter", "sort", "merge", "convert", "write"]
 
 

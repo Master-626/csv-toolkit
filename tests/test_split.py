@@ -168,6 +168,52 @@ def test_missing_column_has_no_output_side_effects(tmp_path):
     assert not output.exists()
 
 
+def test_missing_split_cells_do_not_steal_none_filename(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text(
+        "name,city\nAlice\nBob,\nCarol,None\nDana,Shanghai\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+
+    assert core.split_csv(str(source), str(output), "city") == 3
+
+    assert {path.name for path in output.iterdir()} == {
+        "empty.csv",
+        "None.csv",
+        "Shanghai.csv",
+    }
+    empty_rows = core.read_csv(output / "empty.csv")[1]
+    assert [row["name"] for row in empty_rows] == ["Alice", "Bob"]
+    assert [row["city"] for row in empty_rows] == ["", ""]
+    none_rows = core.read_csv(output / "None.csv")[1]
+    assert [row["name"] for row in none_rows] == ["Carol"]
+    assert none_rows[0]["city"] == "None"
+
+
+def test_only_missing_split_value_uses_empty_name(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text("name,city\nAlice\n", encoding="utf-8")
+    output = tmp_path / "out"
+
+    assert core.split_csv(str(source), str(output), "city") == 1
+    assert [path.name for path in output.iterdir()] == ["empty.csv"]
+
+
+def test_missing_split_leaves_unrelated_none_file(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text("name,city\nAlice\n", encoding="utf-8")
+    output = tmp_path / "out"
+    output.mkdir()
+    kept = output / "None.csv"
+    kept.write_bytes(b"keep")
+
+    core.split_csv(str(source), str(output), "city")
+
+    assert kept.read_bytes() == b"keep"
+    assert (output / "empty.csv").read_bytes()
+
+
 def test_header_only_csv_creates_no_outputs(tmp_path):
     source = make_source(tmp_path / "source.csv", [])
     output = tmp_path / "out"

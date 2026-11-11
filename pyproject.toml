@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "csv-toolkit"
-version = "0.1.0"
-description = "A powerful CSV data processing toolkit - merge, split, filter, sort, convert formats"
+version = "0.1.1"
+description = "Merge, split, filter, sort, and convert CSV files without overwriting existing outputs"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -22,6 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business",
 ]
 dependencies = [
@@ -34,6 +36,25 @@ csv-toolkit = "csv_toolkit.cli:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "ruff>=0.6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = [
+    # zip(strict=...) is not available on Python 3.8.
+    "B905",
+    # Split cleanup keeps the publish error as implicit exception context.
+    "B904",
 ]
 
 [project.urls]

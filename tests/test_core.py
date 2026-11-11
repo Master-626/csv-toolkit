@@ -1,6 +1,12 @@
-import pytest
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from csv_toolkit.core import merge_csv, filter_csv, sort_csv
+
+import pytest
+from click.testing import CliRunner
+
+from csv_toolkit import __version__
+from csv_toolkit.cli import main
+from csv_toolkit.core import filter_csv, merge_csv, sort_csv
 
 
 @pytest.fixture
@@ -30,3 +36,17 @@ def test_merge_csv(sample_csv, tmp_path):
     output = tmp_path / "merged.csv"
     count = merge_csv([str(sample_csv), str(sample_csv)], str(output))
     assert count == 6  # 3 + 3 rows
+
+
+def test_package_version_matches_metadata():
+    try:
+        installed = version("csv-toolkit")
+    except PackageNotFoundError:
+        pytest.skip("csv-toolkit is not installed")
+    assert __version__ == installed
+
+
+def test_cli_version():
+    result = CliRunner().invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
